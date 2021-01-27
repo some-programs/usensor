@@ -1,10 +1,12 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"sync"
@@ -24,11 +26,17 @@ var (
 
 func main() {
 
+	listenAddr := flag.String("l", ":8080", "listen addr")
+	flag.Parse()
+
 	go mainSensors()
 	http.HandleFunc("/chart", drawChart)
 	http.HandleFunc("/config", renderConfig)
 	http.HandleFunc("/", renderRoot)
-	http.ListenAndServe(":8080", nil)
+	if err := http.ListenAndServe(*listenAddr, nil); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 }
 
 func drawChart(res http.ResponseWriter, req *http.Request) {

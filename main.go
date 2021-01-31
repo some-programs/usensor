@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -11,8 +12,6 @@ import (
 	"strconv"
 	"sync"
 	"time"
-
-	"encoding/json"
 
 	"github.com/alecthomas/template"
 	"github.com/md14454/gosensors"

@@ -1,0 +1,3 @@
+#!/bin/bash
+
+watchexec --restart -e .go,.html,.css -- go run .

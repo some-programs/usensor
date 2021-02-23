@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+	  <title>bv</title>
+  </head>
+  <body style="margin:0px; padding:0px; overflow-x:hidden;">
+    {{range .Configs}}
+    <p>{{ .Name }}</p>
+    <img id="chart1" src="/chart?config={{ .Query }}">
+    {{else}}
+    <div><strong>no graphs configured</strong></div>
+    {{end}}
+    <p><a href="/config?configs={{ .Configs.Query }}">config</a></p>
+    <script>
+      window.onload = function() {
+        function updateImage(img) {
+          var u = new URL(img.src);
+          var p = u.searchParams;
+          p.set("refresh", new Date().getTime());
+          p.set("width", window.innerWidth);
+          img.src=u.toString();
+        }
+        function updateImages() {
+          // document.getElementsByTagName('img');
+          var els = document.getElementsByTagName('img')
+          for(var i = 0; i < els.length; i++) {
+            updateImage(els[i]);
+          }
+        }
+        updateImages();
+        setInterval(updateImages, 1000);
+      }
+    </script>
+  </body>
+</html>

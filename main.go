@@ -1,9 +1,12 @@
 package main
 
 import (
+	"embed"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"html/template"
+	"log"
 	"net/http"
 	_ "net/http/pprof"
 	"net/url"
@@ -13,10 +16,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alecthomas/template"
+	"github.com/benbjohnson/hashfs"
 	"github.com/md14454/gosensors"
 	"github.com/wcharczuk/go-chart"
 )
+
+//go:embed static
+var StaticFS embed.FS
+
+var StaticHashFS = hashfs.NewFS(StaticFS)
+
+//go:embed template
+var TemplateFS embed.FS
 
 var (
 	sensorData = make(map[Key]*Readings, 0)
@@ -24,6 +35,7 @@ var (
 )
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	listenAddr := flag.String("l", ":8080", "listen addr")
 	flag.Parse()
@@ -38,15 +50,19 @@ func main() {
 	}
 }
 
-func drawChart(res http.ResponseWriter, req *http.Request) {
-	res.Header().Set("Cache-control", "max-age=0, must-revalidate")
+func drawChart(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Cache-control", "max-age=0, must-revalidate")
 	config := req.URL.Query().Get("config")
 	if config == "" {
-		panic("no config supplied")
+		log.Println("no config supplied")
+		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 	var conf ChartConfig
 	if err := json.Unmarshal([]byte(config), &conf); err != nil {
-		panic(err)
+		log.Println(err, string(config))
+		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 	sensorType := SensorTemprature
 	if conf.Type == "fanspeed" {
@@ -60,7 +76,9 @@ func drawChart(res http.ResponseWriter, req *http.Request) {
 	if p := req.URL.Query().Get("width"); p != "" {
 		i, err := strconv.ParseInt(p, 10, 64)
 		if err != nil {
-			panic(err)
+			log.Println(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
 		imgWidth = int(i)
 	}
@@ -131,15 +149,15 @@ loop:
 		},
 		Series: charts,
 	}
-	//note we have to do this as a separate step because we need a reference to graph
+	// note we have to do this as a separate step because we need a reference to graph
 	graph.Elements = []chart.Renderable{
 		chart.LegendLeft(&graph),
 		// chart.LegendThin(&graph),
 	}
 	// res.Header().Set("Content-Type", "image/png")
 	// graph.Render(chart.PNG, res)
-	res.Header().Set("Content-Type", "image/svg+xml")
-	graph.Render(chart.SVG, res)
+	w.Header().Set("Content-Type", "image/svg+xml")
+	graph.Render(chart.SVG, w)
 }
 
 type Key struct {
@@ -256,7 +274,7 @@ type ChartConfigs []ChartConfig
 func (c ChartConfigs) JSON() string {
 	data, err := json.MarshalIndent(&c, "", " ")
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	return string(data)
 }
@@ -264,17 +282,17 @@ func (c ChartConfigs) JSON() string {
 func (c ChartConfigs) Query() string {
 	data, err := json.Marshal(&c)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
-	return url.QueryEscape(string(data))
+	return string(data)
 }
 
 func (c ChartConfig) Query() string {
 	data, err := json.Marshal(&c)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
-	return url.QueryEscape(string(data))
+	return string(data)
 }
 
 var defaultChartConfig = ChartConfigs{
@@ -293,56 +311,23 @@ var defaultChartConfig = ChartConfigs{
 	},
 }
 
-const indexTpl = `
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8">
-	  <title>bv</title>
-  </head>
-  <body style="margin:0px; padding:0px; overflow-x:hidden;">
-    {{range .Configs}}
-      <p>{{ .Name }}</p>
-      <img id="chart1" src="/chart?config={{ .Query }}">
-    {{else}}
-       <div><strong>no graphs configured</strong></div>
-    {{end}}
-    <p><a href="/config?configs={{ .Configs.Query }}">config</a></p>
-<script>
-window.onload = function() {
-  function updateImage(img) {
-    var u = new URL(img.src);
-    var p = u.searchParams;
-    p.set("refresh", new Date().getTime());
-    p.set("width", window.innerWidth);
-    img.src=u.toString();
-  }
-  function updateImages() {
-      // document.getElementsByTagName('img');
-      var els = document.getElementsByTagName('img')
-      for(var i = 0; i < els.length; i++) {
-       updateImage(els[i]);
-      }
-  }
-    updateImages();
-    setInterval(updateImages, 1000);
-}
-</script>
-
-  </body>
-</html>`
-
 type templateData struct {
 	Configs ChartConfigs
 }
 
 func renderRoot(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.New("body").Parse(indexTpl)
+	tmpl, err := template.New("index.html").
+		Funcs(template.FuncMap{
+			"static": StaticHashFS.HashName,
+		}).
+		ParseFS(TemplateFS, "template/index.html")
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	if err := r.ParseForm(); err != nil {
-		panic(err)
+		log.Print(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 	configJSON := r.Form.Get("configs")
 
@@ -352,7 +337,9 @@ func renderRoot(w http.ResponseWriter, r *http.Request) {
 	} else {
 		err := json.Unmarshal([]byte(configJSON), &configs)
 		if err != nil {
-			panic(err)
+			log.Println(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 	}
 
@@ -360,28 +347,16 @@ func renderRoot(w http.ResponseWriter, r *http.Request) {
 		Configs: configs,
 	}
 	if err := tmpl.Execute(w, &templateData); err != nil {
-		panic(err)
+		log.Println(err)
+		return
 	}
 }
 
-const configTpl = `
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8">
-	  <title>bv</title>
-  </head>
-  <body>
-    <form action="/config" method="post">
-     <textarea rows="50" cols="100" name="configs">{{ .Configs.JSON }}</textarea>
-    <button type="submit">Submit</button>
-  </form>
-  </body>
-</html>`
-
 func renderConfig(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		panic(err)
+		log.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 	configJSON := r.Form.Get("configs")
 
@@ -391,22 +366,29 @@ func renderConfig(w http.ResponseWriter, r *http.Request) {
 	} else {
 		err := json.Unmarshal([]byte(configJSON), &configs)
 		if err != nil {
-			panic(err)
+			log.Println(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 	}
 	if r.Method == http.MethodPost {
-		http.Redirect(w, r, "/?configs="+configs.Query(), http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "/?configs="+url.QueryEscape(configs.Query()), http.StatusTemporaryRedirect)
 		return
 	}
-	tmpl, err := template.New("body").Parse(configTpl)
+
+	tmpl, err := template.New("config.html").
+		Funcs(template.FuncMap{
+			"static": StaticHashFS.HashName,
+		}).
+		ParseFS(TemplateFS, "template/config.html")
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	formdata := templateData{
 		Configs: configs,
 	}
 	if err := tmpl.Execute(w, &formdata); err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 }
 

@@ -1,6 +1,6 @@
 module github.com/some-programs/usensor
 
-go 1.16
+go 1.17
 
 require (
 	github.com/benbjohnson/hashfs v0.1.0
@@ -8,5 +8,5 @@ require (
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/md14454/gosensors v0.0.0-20180726083412-bded752ab001
 	github.com/wcharczuk/go-chart v2.0.1+incompatible
-	golang.org/x/image v0.0.0-20210220032944-ac19c3e999fb // indirect
+	golang.org/x/image v0.0.0-20210628002857-a66eb6448b8d // indirect
 )

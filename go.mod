@@ -1,6 +1,6 @@
 module github.com/some-programs/usensor
 
-go 1.18
+go 1.20
 
 require (
 	github.com/benbjohnson/hashfs v0.2.1
@@ -11,5 +11,5 @@ require (
 require (
 	github.com/blend/go-sdk v1.20210116.5 // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
-	golang.org/x/image v0.1.0 // indirect
+	golang.org/x/image v0.7.0 // indirect
 )
